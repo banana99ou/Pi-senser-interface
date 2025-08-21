@@ -21,15 +21,14 @@ def main():
             if now - t0 >= 0.5:
                 fps = frames / (now - t0)
                 t0 = now; frames = 0
-            else:
-                fps = None
+            # else:
+            #     fps = None
 
             if fps is not None:
                 text = f"{fps:.1f} FPS"
                 if pts_s == pts_s:  # not NaN
                     text += f" | t={pts_s*1e3:,.1f} ms"
-                cv2.putText(img, text, (8, 28),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2, cv2.LINE_AA)
+            cv2.putText(img, text, (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,255,0), 2, cv2.LINE_AA)
 
             cv2.imshow(win, img)
             key = cv2.waitKey(1) & 0xFF

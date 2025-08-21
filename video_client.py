@@ -50,7 +50,7 @@ class VideoClient:
                         tb = frame.time_base or self._vstream.time_base
                         pts_s = float(frame.pts * tb) if frame.pts is not None else np.nan
                         yield img_bgr, pts_s
-            except av.AVError as e:
+            except av.OSError as e:
                 # Any network/decoder hiccup → brief backoff and reconnect
                 self._cleanup()
                 time.sleep(self.reconnect_delay)

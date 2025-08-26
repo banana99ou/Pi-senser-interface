@@ -93,27 +93,6 @@ def mpu_calibrate(bus: SMBus, seconds=1.5):
     return sx/n, sy/n, sz/n
 
 def video_server(stop_evt: threading.Event):
-    cam = Picamera2()
-
-    # Build a libcamera Transform for rotation
-    if ROTATE_DEG % 360 == 0:
-        xform = Transform()
-    elif ROTATE_DEG % 360 == 180:
-        # 180° = hflip + vflip (keeps 1280x720)
-        xform = Transform(hflip=True, vflip=True)
-    else:
-        # For 90/270 you can use transpose + one flip; see notes below.
-        xform = Transform()
-
-    cfg = cam.create_video_configuration(
-        main={"size": (WIDTH, HEIGHT), "format": "YUV420"},
-        controls={"FrameRate": FPS},
-        transform=xform,  # <-- rotation applied in ISP before encode
-    )
-    cam.configure(cfg)
-    enc = H264Encoder(bitrate=BITRATE)
-    enc.repeat  = True     # SPS/PPS inline at each IDR
-    enc.iperiod = GOP
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

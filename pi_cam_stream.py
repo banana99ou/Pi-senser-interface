@@ -17,12 +17,17 @@ from smbus import SMBus
 from picamera2 import Picamera2
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import PyavOutput
+try:
+    from libcamera import Transform          # preferred
+except ImportError:
+    from picamera2 import Transform          # fallback for older builds
 
 # ---- Video config ----
 WIDTH, HEIGHT, FPS = 1280, 720, 60
 BITRATE = 10_000_000     # 10 Mbps
 GOP     = 120            # keyframe every ~2 s at 60 fps
 VID_PORT = 6000
+ROTATE_DEG = 180
 
 # ---- IMU config ----
 I2C_BUS   = 1
@@ -89,9 +94,21 @@ def mpu_calibrate(bus: SMBus, seconds=1.5):
 
 def video_server(stop_evt: threading.Event):
     cam = Picamera2()
+
+    # Build a libcamera Transform for rotation
+    if ROTATE_DEG % 360 == 0:
+        xform = Transform()
+    elif ROTATE_DEG % 360 == 180:
+        # 180° = hflip + vflip (keeps 1280x720)
+        xform = Transform(hflip=True, vflip=True)
+    else:
+        # For 90/270 you can use transpose + one flip; see notes below.
+        xform = Transform()
+
     cfg = cam.create_video_configuration(
         main={"size": (WIDTH, HEIGHT), "format": "YUV420"},
         controls={"FrameRate": FPS},
+        transform=xform,  # <-- rotation applied in ISP before encode
     )
     cam.configure(cfg)
     enc = H264Encoder(bitrate=BITRATE)

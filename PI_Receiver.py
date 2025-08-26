@@ -21,6 +21,10 @@ import threading, time, struct, socket, datetime, csv, os, argparse
 import numpy as np, cv2, serial, zlib
 from serial import SerialException
 import av  # PyAV
+try:
+    from av import AVError as _PyAVError
+except Exception:
+    class _PyAVError(Exception): pass
 
 # ================= User Config =================
 # Heartbeat listener (UNCHANGED semantics): start recording only after any UDP arrives here.
@@ -154,6 +158,7 @@ class VideoClient:
     def _open(self):
         self._container = av.open(self.url, format="mpegts", options=self._open_opts)
         self._vstream   = next(s for s in self._container.streams if s.type == "video")
+        print(f"[VID] Opened {self.url} OK, codec={self._vstream.codec_context.name}, tb={self._vstream.time_base}")
 
     def frames(self):
         while not self._closed:
@@ -166,13 +171,20 @@ class VideoClient:
                         tb = frame.time_base or self._vstream.time_base
                         pts_us = int(frame.pts * tb * 1_000_000) if (frame.pts is not None and tb is not None) else None
                         yield img_bgr, pts_us
-            except av.AVError as e:
-                print(f"[VID] AVError: {e}; reconnecting…")
-                self._cleanup(); time.sleep(self.reconnect_delay)
-            except Exception as e:
-                print(f"[VID] Error: {e}; reconnecting…")
-                self._cleanup(); time.sleep(self.reconnect_delay)
+            except (_PyAVError, OSError) as e:   # <- catch PyAV + socket layer
+                if self._closed:
+                    break
+                print(f"[VID] Open/demux error on {self.url}: {e}; reconnecting…")
+                self._cleanup()
+                time.sleep(self.reconnect_delay)
 
+            except Exception as e:
+                if self._closed:
+                    break
+                print(f"[VID] Unexpected error: {type(e).__name__}: {e}; reconnecting…")
+                self._cleanup()
+                time.sleep(self.reconnect_delay)
+        
     def close(self):
         self._closed = True; self._cleanup()
 
@@ -193,6 +205,7 @@ class IMUClient:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         s.connect((self.host, self.port))
+        s.settimeout(2.0)
         self.sock = s
 
     def samples(self):
@@ -363,9 +376,10 @@ def main():
             ic.close()
             print("[IMU] thread exit")
 
-    tv = threading.Thread(target=video_thread, daemon=True)
-    ti = threading.Thread(target=imu_thread,   daemon=True)
-    tv.start(); ti.start()
+    tv = threading.Thread(target=video_thread)
+    ti = threading.Thread(target=imu_thread)
+    tv.start()
+    ti.start()
 
     try:
         while not stop.is_set() and tv.is_alive() and ti.is_alive():
@@ -374,6 +388,7 @@ def main():
         stop.set()
     finally:
         vc.close(); ic.close()
+        tv.join(timeout=3.0); ti.join(timeout=3.0)   # <-- wait for clean exit
         try: csv_file.close()
         except Exception: pass
         if PREVIEW:

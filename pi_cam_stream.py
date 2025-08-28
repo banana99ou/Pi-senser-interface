@@ -93,7 +93,6 @@ def mpu_calibrate(bus: SMBus, seconds=1.5):
     return sx/n, sy/n, sz/n
 
 def video_server(stop_evt: threading.Event):
-
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("0.0.0.0", VID_PORT))
@@ -107,49 +106,53 @@ def video_server(stop_evt: threading.Event):
                 conn, addr = srv.accept()
             except socket.timeout:
                 continue
+
             print(f"[VID] Client {addr} connected")
             try:
-                # --- fast dead-peer detection on this connection ---
+                # fast dead-peer detection
                 conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                if hasattr(socket, "TCP_KEEPIDLE"):
-                    conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
-                if hasattr(socket, "TCP_KEEPINTVL"):
-                    conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
-                if hasattr(socket, "TCP_KEEPCNT"):
-                    conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+                if hasattr(socket, "TCP_KEEPIDLE"):  conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
+                if hasattr(socket, "TCP_KEEPINTVL"): conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+                if hasattr(socket, "TCP_KEEPCNT"):   conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
 
-                # --- fresh camera + encoder PER CLIENT ---
+                # fresh camera + encoder PER CLIENT (nothing at top-level)
+                print("[VID] CAM: create")
                 cam = Picamera2()
-                # Build a libcamera Transform for rotation
+
+                # rotation
                 if ROTATE_DEG % 360 == 0:
                     xform = Transform()
                 elif ROTATE_DEG % 360 == 180:
                     xform = Transform(hflip=True, vflip=True)
                 else:
-                    xform = Transform()  # (keep as-is for 0/180 only)
+                    xform = Transform()  # only 0/180 supported here
 
+                print("[VID] CAM: configure")
                 cfg = cam.create_video_configuration(
                     main={"size": (WIDTH, HEIGHT), "format": "YUV420"},
                     controls={"FrameRate": FPS},
                     transform=xform,
                 )
                 cam.configure(cfg)
+
                 enc = H264Encoder(bitrate=BITRATE)
-                enc.repeat  = True   # SPS/PPS inline at each IDR
+                enc.repeat  = True  # SPS/PPS inline at each IDR
                 enc.iperiod = GOP
 
-                # Keep MPEG-TS container so the PC's PyAV(mpegts) receiver works
+                # keep MPEG-TS for the PC side
                 out = PyavOutput(f"pipe:{conn.fileno()}", format="mpegts")
+
+                print("[VID] CAM: start_recording")
                 cam.start_recording(enc, out, name="main")
 
-                # Block here until stop or the writer hits EPIPE/timeout internally
                 while not stop_evt.is_set():
                     time.sleep(0.25)
+
             except Exception as e:
                 print(f"[VID] Stream ended: {e}")
             finally:
-                # tear EVERYTHING down so we always return to accept()
+                # tear everything down so we reliably return to accept()
                 try:
                     cam.stop_recording()
                 except Exception:

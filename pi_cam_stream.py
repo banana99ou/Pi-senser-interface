@@ -208,7 +208,7 @@ def imu_server(stop_evt: threading.Event):
                     gx -= bias_gx; gy -= bias_gy; gz -= bias_gz
                     if APPLY_AXIS_MAP:
                         # ax=-z, ay=+x, az=+y; gx=+z, gy=-x, gz=-y
-                        ax, ay, az, gx, gy, gz = (-az, ax, ay, gz, -gx, -gy)
+                        ax, ay, az, gx, gy, gz = (-az, ay, ax, gz, -gy, -gx)
                     packet = struct.pack("<Q6f", t_us, ax, ay, az, gx, gy, gz)
                     conn.sendall(packet)
 
